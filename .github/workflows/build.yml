@@ -12,10 +12,6 @@ jobs:
       - name: Baixar código do repositório
         uses: actions/checkout@v4
 
-      - name: Baixar zygisk.hpp oficial
-        run: |
-          curl -sL https://githubusercontent.com -o app/src/main/jni/zygisk.hpp
-
       - name: Configurar Android NDK
         uses: nttld/setup-ndk@v1
         with:
