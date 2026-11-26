@@ -42,12 +42,17 @@ jobs:
           exit 0
           EOF
           printf "#MAGISK\n" > module/META-INF/com/google/android/updater-script
+          cat << 'EOF' > module/customize.sh
+          set_perm_recursive $MODPATH 0 0 0755 0644
+          set_perm_recursive $MODPATH/zygisk 0 0 0755 0755
+          set_perm $MODPATH/packages.txt 0 0 0644
+          EOF
           cp app/src/main/libs/armeabi-v7a/libhidemap.so module/zygisk/armeabi-v7a.so
           if [ -f "app/src/main/libs/arm64-v8a/libhidemap.so" ]; then
             cp app/src/main/libs/arm64-v8a/libhidemap.so module/zygisk/arm64-v8a.so
           fi
-          printf "id=zygisk_hidemap\nname=Zygisk HideMap (Remap)\nversion=v1.1\nversionCode=2\nauthor=Custom\ndescription=Remapeia bibliotecas de /data/adb/modules para memoria anonima por pacote\n" > module/module.prop
-          printf "com.exemplo.appalvo\n" > module/packages.txt
+          printf "id=zygisk_hidemap\nname=Zygisk HideMap (Remap)\nversion=v1.2\nversionCode=3\nauthor=Custom\ndescription=Remapeia bibliotecas de /data/adb/modules para memoria anonima por pacote\n" > module/module.prop
+          printf "ru.andr7e.deviceinfohw\n" > module/packages.txt
           cd module && zip -r ../Zygisk-HideMap.zip .
 
       - name: Salvar módulo ZIP
