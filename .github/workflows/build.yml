@@ -1,4 +1,4 @@
-name: Build RemapHide armeabi-v7a
+name: Build RemapHide
 
 on:
   push:
@@ -12,23 +12,18 @@ jobs:
       - name: Baixar código do repositório
         uses: actions/checkout@v4
 
-      - name: Configurar Java 17
-        uses: actions/setup-java@v4
-        with:
-          distribution: 'temurin'
-          java-version: '17'
-
       - name: Configurar Android NDK
+        id: setup-ndk
         uses: nttld/setup-ndk@v1
         with:
           ndk-version: r25c
 
-      - name: Compilar bibliotecas nativas (armeabi-v7a)
+      - name: Compilar bibliotecas nativas
         run: |
-          $NDK/ndk-build NDK_PROJECT_PATH=app/src/main APP_BUILD_SCRIPT=app/src/main/jni/Android.mk NDK_APPLICATION_MK=app/src/main/jni/Application.mk
+          ${{ steps.setup-ndk.outputs.ndk-path }}/ndk-build NDK_PROJECT_PATH=app/src/main APP_BUILD_SCRIPT=app/src/main/jni/Android.mk NDK_APPLICATION_MK=app/src/main/jni/Application.mk
 
       - name: Salvar arquivos .so compilados
         uses: actions/upload-artifact@v4
         with:
-          name: libs-armeabi-v7a
-          path: app/src/main/libs/armeabi-v7a/*.so
+          name: libs-compiladas
+          path: app/src/main/libs/
