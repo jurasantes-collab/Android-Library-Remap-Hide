@@ -64,8 +64,28 @@ enum StateFlag : uint32_t {
     PROCESS_ON_DENYLIST = (1u << 1),
 };
 
-struct Api {
-    long (*registerModule)(ApiTable *, ModuleBase *);
+namespace internal {
+struct ModuleAbi {
+    long api_version;
+    ModuleBase *impl;
+
+    void (*preAppSpecialize)(ModuleBase *, AppSpecializeArgs *);
+    void (*postAppSpecialize)(ModuleBase *, const AppSpecializeArgs *);
+    void (*preServerSpecialize)(ModuleBase *, ServerSpecializeArgs *);
+    void (*postServerSpecialize)(ModuleBase *, const ServerSpecializeArgs *);
+
+    ModuleAbi(ModuleBase *module) : api_version(ZYGISK_API_VERSION), impl(module) {
+        preAppSpecialize = [](auto self, auto args) { self->preAppSpecialize(args); };
+        postAppSpecialize = [](auto self, auto args) { self->postAppSpecialize(args); };
+        preServerSpecialize = [](auto self, auto args) { self->preServerSpecialize(args); };
+        postServerSpecialize = [](auto self, auto args) { self->postServerSpecialize(args); };
+    }
+};
+
+struct ApiTable {
+    void *impl;
+    bool (*registerModule)(ApiTable *, ModuleAbi *);
+
     void (*hookJniNativeMethods)(JNIEnv *, const char *, JNINativeMethod *, int);
     void (*pltHookRegister)(dev_t, ino_t, const char *, void *, void **);
     bool (*pltHookCommit)();
@@ -73,23 +93,10 @@ struct Api {
     void (*setOption)(void *, Option);
     int (*getModuleDir)(void *);
     uint32_t (*getFlags)(void *);
+};
+} // namespace internal
 
-private:
-    struct ApiTable {
-        void *impl;
-        bool (*registerModule)(ApiTable *, ModuleBase *);
-        void (*hookJniNativeMethods)(JNIEnv *, const char *, JNINativeMethod *, int);
-        void (*pltHookRegister)(dev_t, ino_t, const char *, void *, void **);
-        bool (*pltHookCommit)();
-        int (*connectCompanion)(void *);
-        void (*setOption)(void *, Option);
-        int (*getModuleDir)(void *);
-        uint32_t (*getFlags)(void *);
-    } *tbl;
-
-    template<class T> friend void ::zygisk_module_entry(void *, void *);
-
-public:
+struct Api {
     void hookJniNativeMethods(JNIEnv *env, const char *className, JNINativeMethod *methods, int numMethods) {
         tbl->hookJniNativeMethods(env, className, methods, numMethods);
     }
@@ -111,6 +118,10 @@ public:
     uint32_t getFlags() {
         return tbl->getFlags(tbl->impl);
     }
+
+private:
+    internal::ApiTable *tbl;
+    template<class T> friend void ::zygisk_module_entry(void *, void *);
 };
 
 } // namespace zygisk
@@ -128,9 +139,10 @@ void zygisk_companion_entry(int client);
 #define REGISTER_ZYGISK_MODULE(clazz) \
 void zygisk_module_entry(void *table, void *env) { \
     static clazz module; \
+    static zygisk::internal::ModuleAbi abi(&module); \
     static zygisk::Api api; \
-    api.tbl = static_cast<decltype(api.tbl)>(table); \
-    if (api.tbl->registerModule(api.tbl, &module)) { \
+    api.tbl = static_cast<zygisk::internal::ApiTable *>(table); \
+    if (api.tbl->registerModule(api.tbl, &abi)) { \
         module.onLoad(&api, static_cast<JNIEnv *>(env)); \
     } \
 }
