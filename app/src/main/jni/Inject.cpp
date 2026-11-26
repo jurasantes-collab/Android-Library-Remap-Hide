@@ -4,9 +4,13 @@
 #include <unistd.h>
 #include <fcntl.h>
 #include <string>
+#include <thread>
+#include <chrono>
 #include <android/log.h>
 #include "zygisk.hpp"
 #include "RemapTools.h"
+
+#define HIDE_LOG(...) __android_log_print(ANDROID_LOG_INFO, "HideMap", __VA_ARGS__)
 
 using zygisk::Api;
 using zygisk::AppSpecializeArgs;
@@ -34,46 +38,53 @@ public:
         std::string current_pkg(pkg_raw);
         env->ReleaseStringUTFChars(args->nice_name, pkg_raw);
 
-        // Abre a pasta do modulo com privilegio do Zygisk antes de entrar no app
         int dir_fd = api->getModuleDir();
         if (dir_fd >= 0) {
             int file_fd = openat(dir_fd, "packages.txt", O_RDONLY);
             if (file_fd >= 0) {
-                std::string content;
+                std::string token;
                 char ch;
                 while (read(file_fd, &ch, 1) == 1) {
                     if (ch == '\n' || ch == '\r' || ch == ' ' || ch == '\t') {
-                        if (!content.empty()) {
-                            if (content == current_pkg) {
+                        if (!token.empty()) {
+                            if (current_pkg.find(token) != std::string::npos) {
                                 should_hide = true;
                                 break;
                             }
-                            content.clear();
+                            token.clear();
                         }
                     } else {
-                        content.push_back(ch);
+                        token.push_back(ch);
                     }
                 }
-                if (!should_hide && !content.empty() && content == current_pkg) {
+                if (!should_hide && !token.empty() && current_pkg.find(token) != std::string::npos) {
                     should_hide = true;
                 }
                 close(file_fd);
+            } else {
+                HIDE_LOG("Erro ao abrir packages.txt: %s", strerror(errno));
             }
             close(dir_fd);
         }
 
-        // Se o app nao estiver no packages.txt, descarrega o modulo imediatamente
-        if (!should_hide) {
+        if (should_hide) {
+            HIDE_LOG("Alvo encontrado: %s", current_pkg.c_str());
+        } else {
             api->setOption(zygisk::Option::DLCLOSE_MODULE_LIBRARY);
         }
     }
 
     void postAppSpecialize(const AppSpecializeArgs *args) override {
         if (should_hide) {
-            // Esconde qualquer .so carregado de /data/adb/modules apenas neste app
-            RemapTools::RemapLibrary("/data/adb/modules");
+            std::thread([]() {
+                std::this_thread::sleep_for(std::chrono::milliseconds(300));
+                HIDE_LOG("Remapeando /data/adb/modules...");
+                RemapTools::RemapLibrary("/data/adb/modules");
+                HIDE_LOG("Remapeamento concluido!");
+            }).detach();
+        } else {
+            api->setOption(zygisk::Option::DLCLOSE_MODULE_LIBRARY);
         }
-        api->setOption(zygisk::Option::DLCLOSE_MODULE_LIBRARY);
     }
 
 private:
