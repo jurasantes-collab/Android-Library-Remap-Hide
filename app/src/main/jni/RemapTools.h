@@ -1,7 +1,3 @@
-//
-// Adaptado para 32-bit (armeabi-v7a) e Kernel 3.10
-//
-
 #pragma once
 
 #include <cstdint>
@@ -9,12 +5,9 @@
 #include <cstdio>
 #include <cstring>
 #include <cerrno>
-#include <link.h>
 #include <sys/mman.h>
 #include <vector>
 #include <string>
-
-#include "Include/Logger.h"
 
 namespace RemapTools {
     struct ProcMapInfo {
@@ -27,14 +20,15 @@ namespace RemapTools {
         std::string path;
     };
 
-    std::vector<ProcMapInfo> ListModulesWithName(const std::string& name) {
+    std::vector<ProcMapInfo> ListModulesWithName(const std::string& name, const std::string& exclude) {
         std::vector<ProcMapInfo> returnVal;
 
         char buffer[512];
         FILE *fp = fopen("/proc/self/maps", "re");
         if (fp != nullptr) {
             while (fgets(buffer, sizeof(buffer), fp)) {
-                if (strstr(buffer, name.c_str())) {
+                if (strstr(buffer, name.c_str()) != nullptr &&
+                    (exclude.empty() || strstr(buffer, exclude.c_str()) == nullptr)) {
                     ProcMapInfo info{};
                     char perms[10] = {0};
                     char path[256] = {0};
@@ -50,8 +44,6 @@ namespace RemapTools {
 
                         info.dev = dev;
                         info.path = path;
-
-                        LOGI("Line: %s", buffer);
                         returnVal.push_back(info);
                     }
                 }
@@ -61,8 +53,8 @@ namespace RemapTools {
         return returnVal;
     }
 
-    void RemapLibrary(const std::string& name) {
-        std::vector<ProcMapInfo> maps = ListModulesWithName(name);
+    void RemapLibrary(const std::string& name, const std::string& exclude = "") {
+        std::vector<ProcMapInfo> maps = ListModulesWithName(name, exclude);
 
         for (const ProcMapInfo& info : maps) {
             void *address = (void *)info.start;
@@ -70,29 +62,38 @@ namespace RemapTools {
 
             if (size == 0) continue;
 
-            void *map = mmap(nullptr, size, PROT_READ | PROT_WRITE, MAP_ANONYMOUS | MAP_PRIVATE, -1, 0);
-            if (map == MAP_FAILED) {
-                LOGE("Failed to Allocate Memory: %s", strerror(errno));
+            // 1. Aloca backup temporario na RAM
+            void *backup = mmap(nullptr, size, PROT_READ | PROT_WRITE, MAP_ANONYMOUS | MAP_PRIVATE, -1, 0);
+            if (backup == MAP_FAILED) {
                 continue;
             }
 
             if ((info.perms & PROT_READ) == 0) {
-                LOGI("Removing protection: %s", info.path.c_str());
                 mprotect(address, size, info.perms | PROT_READ);
             }
 
-            LOGI("Allocated at address %p with size of %zu", map, size);
+            // 2. Copia o conteudo original
+            std::memcpy(backup, address, size);
 
-            std::memmove(map, address, size);
-
-            void *res = mremap(map, size, size, MREMAP_MAYMOVE | MREMAP_FIXED, address);
-            if (res == MAP_FAILED) {
-                LOGE("mremap failed: %s", strerror(errno));
-                munmap(map, size);
+            // 3. Remove o mapeamento ligado ao arquivo no disco
+            if (munmap(address, size) != 0) {
+                munmap(backup, size);
                 continue;
             }
 
-            mprotect(address, size, info.perms);
+            // 4. Recria pagina anonima no mesmo endereco exato
+            void *new_map = mmap(address, size, PROT_READ | PROT_WRITE, MAP_ANONYMOUS | MAP_PRIVATE | MAP_FIXED, -1, 0);
+            if (new_map == MAP_FAILED) {
+                munmap(backup, size);
+                continue;
+            }
+
+            // 5. Restaura os dados e limpa o cache de instrucoes ARMv7
+            std::memcpy(new_map, backup, size);
+            munmap(backup, size);
+
+            __builtin___clear_cache((char *)new_map, (char *)new_map + size);
+            mprotect(new_map, size, info.perms);
         }
     }
 }
