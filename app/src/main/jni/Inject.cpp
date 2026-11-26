@@ -34,31 +34,35 @@ public:
         std::string current_pkg(pkg_raw);
         env->ReleaseStringUTFChars(args->nice_name, pkg_raw);
 
-        // Abre a pasta do modulo com privilegio do Zygisk antes de entrar no sandbox do app
+        // Abre a pasta do modulo com privilegio do Zygisk antes de entrar no app
         int dir_fd = api->getModuleDir();
         if (dir_fd >= 0) {
             int file_fd = openat(dir_fd, "packages.txt", O_RDONLY);
             if (file_fd >= 0) {
-                FILE *fp = fdopen(file_fd, "r");
-                if (fp != nullptr) {
-                    char line[256];
-                    while (fgets(line, sizeof(line), fp)) {
-                        // Remove quebras de linha (\r e \n) e espacos
-                        line[strcspn(line, "\r\n ")] = 0;
-                        if (strlen(line) > 0 && current_pkg == line) {
-                            should_hide = true;
-                            break;
+                std::string content;
+                char ch;
+                while (read(file_fd, &ch, 1) == 1) {
+                    if (ch == '\n' || ch == '\r' || ch == ' ' || ch == '\t') {
+                        if (!content.empty()) {
+                            if (content == current_pkg) {
+                                should_hide = true;
+                                break;
+                            }
+                            content.clear();
                         }
+                    } else {
+                        content.push_back(ch);
                     }
-                    fclose(fp);
-                } else {
-                    close(file_fd);
                 }
+                if (!should_hide && !content.empty() && content == current_pkg) {
+                    should_hide = true;
+                }
+                close(file_fd);
             }
             close(dir_fd);
         }
 
-        // Se o app nao estiver na lista, descarrega o modulo agora mesmo sem fazer nada
+        // Se o app nao estiver no packages.txt, descarrega o modulo imediatamente
         if (!should_hide) {
             api->setOption(zygisk::Option::DLCLOSE_MODULE_LIBRARY);
         }
@@ -66,7 +70,7 @@ public:
 
     void postAppSpecialize(const AppSpecializeArgs *args) override {
         if (should_hide) {
-            // Esconde qualquer .so de /data/adb/modules apenas neste app alvo
+            // Esconde qualquer .so carregado de /data/adb/modules apenas neste app
             RemapTools::RemapLibrary("/data/adb/modules");
         }
         api->setOption(zygisk::Option::DLCLOSE_MODULE_LIBRARY);
