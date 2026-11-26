@@ -1,4 +1,4 @@
-name: Build RemapHide
+name: Build Modulo Zygisk HideMap
 
 on:
   push:
@@ -12,18 +12,31 @@ jobs:
       - name: Baixar código do repositório
         uses: actions/checkout@v4
 
+      - name: Baixar zygisk.hpp oficial
+        run: |
+          curl -sL https://githubusercontent.com -o app/src/main/jni/zygisk.hpp
+
       - name: Configurar Android NDK
-        id: setup-ndk
         uses: nttld/setup-ndk@v1
         with:
           ndk-version: r25c
 
-      - name: Compilar bibliotecas nativas
+      - name: Compilar módulo nativo
         run: |
-          ${{ steps.setup-ndk.outputs.ndk-path }}/ndk-build NDK_PROJECT_PATH=app/src/main APP_BUILD_SCRIPT=app/src/main/jni/Android.mk NDK_APPLICATION_MK=app/src/main/jni/Application.mk
+          $ANDROID_NDK_HOME/ndk-build NDK_PROJECT_PATH=app/src/main APP_BUILD_SCRIPT=app/src/main/jni/Android.mk NDK_APPLICATION_MK=app/src/main/jni/Application.mk
 
-      - name: Salvar arquivos .so compilados
+      - name: Empacotar ZIP instalável do Magisk/KernelSU
+        run: |
+          mkdir -p module/zygisk
+          cp app/src/main/libs/armeabi-v7a/libhidemap.so module/zygisk/armeabi-v7a.so
+          if [ -f "app/src/main/libs/arm64-v8a/libhidemap.so" ]; then
+            cp app/src/main/libs/arm64-v8a/libhidemap.so module/zygisk/arm64-v8a.so
+          fi
+          printf "id=zygisk_hidemap\nname=Zygisk HideMap (Remap)\nversion=v1.0\nversionCode=1\nauthor=Custom\ndescription=Remapeia bibliotecas de /data/adb/modules para memoria anonima\n" > module/module.prop
+          cd module && zip -r ../Zygisk-HideMap.zip .
+
+      - name: Salvar módulo ZIP
         uses: actions/upload-artifact@v4
         with:
-          name: libs-compiladas
-          path: app/src/main/libs/
+          name: Zygisk-HideMap-Module
+          path: Zygisk-HideMap.zip
