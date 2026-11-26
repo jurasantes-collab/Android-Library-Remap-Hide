@@ -4,13 +4,11 @@
 #include <unistd.h>
 #include <fcntl.h>
 #include <string>
-#include <thread>
-#include <chrono>
 #include <android/log.h>
 #include "zygisk.hpp"
 #include "RemapTools.h"
 
-#define HIDE_LOG(...) __android_log_print(ANDROID_LOG_INFO, "HideMap", __VA_ARGS__)
+#define HIDE_LOG(...) __android_log_print(ANDROID_LOG_ERROR, "HideMap", __VA_ARGS__)
 
 using zygisk::Api;
 using zygisk::AppSpecializeArgs;
@@ -61,30 +59,24 @@ public:
                     should_hide = true;
                 }
                 close(file_fd);
-            } else {
-                HIDE_LOG("Erro ao abrir packages.txt: %s", strerror(errno));
             }
             close(dir_fd);
         }
 
-        if (should_hide) {
-            HIDE_LOG("Alvo encontrado: %s", current_pkg.c_str());
-        } else {
+        if (!should_hide) {
             api->setOption(zygisk::Option::DLCLOSE_MODULE_LIBRARY);
         }
     }
 
     void postAppSpecialize(const AppSpecializeArgs *args) override {
         if (should_hide) {
-            std::thread([]() {
-                std::this_thread::sleep_for(std::chrono::milliseconds(300));
-                HIDE_LOG("Remapeando /data/adb/modules...");
-                RemapTools::RemapLibrary("/data/adb/modules");
-                HIDE_LOG("Remapeamento concluido!");
-            }).detach();
-        } else {
-            api->setOption(zygisk::Option::DLCLOSE_MODULE_LIBRARY);
+            HIDE_LOG("Limpando modulos para o alvo...");
+            // Remapeia todos os modulos em /data/adb/modules, exceto ele mesmo
+            RemapTools::RemapLibrary("/data/adb/modules", "zygisk_hidemap");
+            HIDE_LOG("Limpeza concluida!");
         }
+        // O Magisk descarrega o proprio zygisk_hidemap logo apos retornar
+        api->setOption(zygisk::Option::DLCLOSE_MODULE_LIBRARY);
     }
 
 private:
