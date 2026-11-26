@@ -30,15 +30,15 @@ namespace RemapTools {
     std::vector<ProcMapInfo> ListModulesWithName(const std::string& name) {
         std::vector<ProcMapInfo> returnVal;
 
-        char buffer;
+        char buffer[512];
         FILE *fp = fopen("/proc/self/maps", "re");
         if (fp != nullptr) {
             while (fgets(buffer, sizeof(buffer), fp)) {
                 if (strstr(buffer, name.c_str())) {
                     ProcMapInfo info{};
-                    char perms = {0};
-                    char path = {0};
-                    char dev = {0};
+                    char perms[10] = {0};
+                    char path[256] = {0};
+                    char dev[32] = {0};
 
                     int parsed = sscanf(buffer, "%" SCNxPTR "-%" SCNxPTR " %9s %" SCNxPTR " %31s %" SCNu64 " %255s",
                                         &info.start, &info.end, perms, &info.offset, dev, &info.inode, path);
