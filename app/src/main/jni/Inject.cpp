@@ -2,7 +2,7 @@
 #include <cstdio>
 #include <cstring>
 #include <unistd.h>
-#include <fcntl.h>
+#include <fstream>
 #include <string>
 #include <thread>
 #include <chrono>
@@ -11,37 +11,35 @@
 
 #define HIDE_LOG(...) __android_log_print(ANDROID_LOG_ERROR, "HideMap", __VA_ARGS__)
 
-// Le o nome do pacote atual direto do /proc/self/cmdline
+// Le o nome do pacote atual direto do /proc/self/cmdline usando std::string
 static std::string GetCurrentPackageName() {
-    FILE *fp = fopen("/proc/self/cmdline", "r");
-    if (!fp) return "";
-    char buf = {0};
-    fread(buf, 1, sizeof(buf) - 1, fp);
-    fclose(fp);
-    return std::string(buf);
+    std::ifstream file("/proc/self/cmdline");
+    if (!file.is_open()) return "";
+    std::string cmdline;
+    std::getline(file, cmdline, '\0');
+    return cmdline;
 }
 
 // Verifica se o pacote atual esta no packages.txt
 static bool ShouldHideForCurrentApp(const std::string& pkg) {
     if (pkg.empty()) return false;
 
-    FILE *fp = fopen("/data/adb/modules/zygisk_hidemap/packages.txt", "r");
-    if (!fp) {
-        HIDE_LOG("Nao conseguiu abrir packages.txt: %s", strerror(errno));
+    std::ifstream file("/data/adb/modules/zygisk_hidemap/packages.txt");
+    if (!file.is_open()) {
         return false;
     }
 
-    char line = {0};
-    bool found = false;
-    while (fgets(line, sizeof(line), fp)) {
-        line[strcspn(line, "\r\n \t")] = 0;
-        if (strlen(line) > 0 && pkg.find(line) != std::string::npos) {
-            found = true;
-            break;
+    std::string line;
+    while (std::getline(file, line)) {
+        // Remove espacos e quebras de linha (\r e \n)
+        while (!line.empty() && (line.back() == '\r' || line.back() == '\n' || line.back() == ' ' || line.back() == '\t')) {
+            line.pop_back();
+        }
+        if (!line.empty() && pkg.find(line) != std::string::npos) {
+            return true;
         }
     }
-    fclose(fp);
-    return found;
+    return false;
 }
 
 // Executa automaticamente assim que o Magisk carrega a .so no processo
