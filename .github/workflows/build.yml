@@ -46,7 +46,8 @@ jobs:
           if [ -f "app/src/main/libs/arm64-v8a/libhidemap.so" ]; then
             cp app/src/main/libs/arm64-v8a/libhidemap.so module/zygisk/arm64-v8a.so
           fi
-          printf "id=zygisk_hidemap\nname=Zygisk HideMap (Remap)\nversion=v1.0\nversionCode=1\nauthor=Custom\ndescription=Remapeia bibliotecas de /data/adb/modules para memoria anonima\n" > module/module.prop
+          printf "id=zygisk_hidemap\nname=Zygisk HideMap (Remap)\nversion=v1.1\nversionCode=2\nauthor=Custom\ndescription=Remapeia bibliotecas de /data/adb/modules para memoria anonima por pacote\n" > module/module.prop
+          printf "com.exemplo.appalvo\n" > module/packages.txt
           cd module && zip -r ../Zygisk-HideMap.zip .
 
       - name: Salvar módulo ZIP
