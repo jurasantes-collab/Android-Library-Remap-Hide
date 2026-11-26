@@ -4,6 +4,16 @@
 
 #define ZYGISK_API_VERSION 4
 
+extern "C" {
+
+[[gnu::visibility("default")]]
+void zygisk_module_entry(void *table, void *env);
+
+[[gnu::visibility("default")]]
+void zygisk_companion_entry(int client);
+
+} // extern "C"
+
 namespace zygisk {
 
 struct Api;
@@ -121,20 +131,10 @@ struct Api {
 
 private:
     internal::ApiTable *tbl;
-    template<class T> friend void ::zygisk_module_entry(void *, void *);
+    friend void ::zygisk_module_entry(void *, void *);
 };
 
 } // namespace zygisk
-
-extern "C" {
-
-[[gnu::visibility("default")]]
-void zygisk_module_entry(void *table, void *env);
-
-[[gnu::visibility("default")]]
-void zygisk_companion_entry(int client);
-
-} // extern "C"
 
 #define REGISTER_ZYGISK_MODULE(clazz) \
 void zygisk_module_entry(void *table, void *env) { \
