@@ -42,6 +42,11 @@ namespace RemapTools {
                         if (strchr(perms, 'w')) info.perms |= PROT_WRITE;
                         if (strchr(perms, 'x')) info.perms |= PROT_EXEC;
 
+                        // Ignora segmentos executáveis para reduzir o risco de crash na RAM
+                        if (info.perms & PROT_EXEC) {
+                            continue;
+                        }
+
                         info.dev = dev;
                         info.path = path;
                         returnVal.push_back(info);
@@ -62,7 +67,7 @@ namespace RemapTools {
 
             if (size == 0) continue;
 
-            // 1. Aloca backup temporario na RAM
+            // 1. Aloca cópia temporária em memória anónima
             void *backup = mmap(nullptr, size, PROT_READ | PROT_WRITE, MAP_ANONYMOUS | MAP_PRIVATE, -1, 0);
             if (backup == MAP_FAILED) {
                 continue;
@@ -72,27 +77,26 @@ namespace RemapTools {
                 mprotect(address, size, info.perms | PROT_READ);
             }
 
-            // 2. Copia o conteudo original
+            // 2. Copia o conteúdo original
             std::memcpy(backup, address, size);
 
-            // 3. Remove o mapeamento ligado ao arquivo no disco
+            // 3. Remove o mapeamento ligado ao ficheiro no disco
             if (munmap(address, size) != 0) {
                 munmap(backup, size);
                 continue;
             }
 
-            // 4. Recria pagina anonima no mesmo endereco exato
+            // 4. Recria página anónima no mesmo endereço exato
             void *new_map = mmap(address, size, PROT_READ | PROT_WRITE, MAP_ANONYMOUS | MAP_PRIVATE | MAP_FIXED, -1, 0);
             if (new_map == MAP_FAILED) {
                 munmap(backup, size);
                 continue;
             }
 
-            // 5. Restaura os dados e limpa o cache de instrucoes ARMv7
+            // 5. Restaura os dados e aplica as permissões originais não executáveis
             std::memcpy(new_map, backup, size);
             munmap(backup, size);
 
-            __builtin___clear_cache((char *)new_map, (char *)new_map + size);
             mprotect(new_map, size, info.perms);
         }
     }
