@@ -4,8 +4,6 @@
 #include <unistd.h>
 #include <string>
 #include <vector>
-#include <thread>
-#include <chrono>
 #include <android/log.h>
 #include "zygisk.hpp"
 #include "RemapTools.h"
@@ -15,10 +13,10 @@
 using zygisk::Api;
 using zygisk::AppSpecializeArgs;
 
-// Coloque aqui os pacotes dos aplicativos onde voce quer esconder os modulos
+// Adiciona aqui os pacotes onde pretendes aplicar o remapeamento
 static const std::vector<std::string> target_packages = {
     "ru.andr7e.deviceinfohw",
-    "com.exemplo.seuappalvo"
+    "SUBSTITUA_PELO_PACOTE_ALVO"
 };
 
 class HideMapModule : public zygisk::ModuleBase {
@@ -45,30 +43,25 @@ public:
         env->ReleaseStringUTFChars(args->nice_name, pkg_raw);
 
         for (const auto& target : target_packages) {
-            if (!target.empty() && current_pkg.find(target) != std::string::npos) {
+            if (!target.empty() && target != "SUBSTITUA_PELO_PACOTE_ALVO" &&
+                current_pkg.find(target) != std::string::npos) {
                 should_hide = true;
                 break;
             }
         }
 
-        if (should_hide) {
-            HIDE_LOG("Alvo confirmado: %s", current_pkg.c_str());
-        } else {
+        if (!should_hide) {
             api->setOption(zygisk::Option::DLCLOSE_MODULE_LIBRARY);
         }
     }
 
     void postAppSpecialize(const AppSpecializeArgs *args) override {
         if (should_hide) {
-            std::thread([]() {
-                std::this_thread::sleep_for(std::chrono::milliseconds(400));
-                HIDE_LOG("Iniciando remapeamento de /data/adb/modules...");
-                RemapTools::RemapLibrary("/data/adb/modules");
-                HIDE_LOG("Remapeamento concluido com sucesso!");
-            }).detach();
-        } else {
-            api->setOption(zygisk::Option::DLCLOSE_MODULE_LIBRARY);
+            HIDE_LOG("Iniciando remapeamento de /data/adb/modules...");
+            RemapTools::RemapLibrary("/data/adb/modules", "zygisk_hidemap");
+            HIDE_LOG("Limpeza concluida!");
         }
+        api->setOption(zygisk::Option::DLCLOSE_MODULE_LIBRARY);
     }
 
 private:
