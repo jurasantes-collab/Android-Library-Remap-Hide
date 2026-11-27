@@ -2,8 +2,8 @@
 #include <cstdio>
 #include <cstring>
 #include <unistd.h>
-#include <fcntl.h>
 #include <string>
+#include <vector>
 #include <thread>
 #include <chrono>
 #include <android/log.h>
@@ -15,12 +15,17 @@
 using zygisk::Api;
 using zygisk::AppSpecializeArgs;
 
+// Coloque aqui os pacotes dos aplicativos onde voce quer esconder os modulos
+static const std::vector<std::string> target_packages = {
+    "ru.andr7e.deviceinfohw",
+    "com.exemplo.seuappalvo"
+};
+
 class HideMapModule : public zygisk::ModuleBase {
 public:
     void onLoad(Api *api, JNIEnv *env) override {
         this->api = api;
         this->env = env;
-        HIDE_LOG("onLoad executado pelo Magisk!");
     }
 
     void preAppSpecialize(AppSpecializeArgs *args) override {
@@ -39,31 +44,11 @@ public:
         std::string current_pkg(pkg_raw);
         env->ReleaseStringUTFChars(args->nice_name, pkg_raw);
 
-        int dir_fd = api->getModuleDir();
-        if (dir_fd >= 0) {
-            int file_fd = openat(dir_fd, "packages.txt", O_RDONLY);
-            if (file_fd >= 0) {
-                std::string token;
-                char ch;
-                while (read(file_fd, &ch, 1) == 1) {
-                    if (ch == '\n' || ch == '\r' || ch == ' ' || ch == '\t') {
-                        if (!token.empty()) {
-                            if (current_pkg.find(token) != std::string::npos) {
-                                should_hide = true;
-                                break;
-                            }
-                            token.clear();
-                        }
-                    } else {
-                        token.push_back(ch);
-                    }
-                }
-                if (!should_hide && !token.empty() && current_pkg.find(token) != std::string::npos) {
-                    should_hide = true;
-                }
-                close(file_fd);
+        for (const auto& target : target_packages) {
+            if (!target.empty() && current_pkg.find(target) != std::string::npos) {
+                should_hide = true;
+                break;
             }
-            close(dir_fd);
         }
 
         if (should_hide) {
@@ -77,9 +62,9 @@ public:
         if (should_hide) {
             std::thread([]() {
                 std::this_thread::sleep_for(std::chrono::milliseconds(400));
-                HIDE_LOG("Iniciando remapeamento...");
+                HIDE_LOG("Iniciando remapeamento de /data/adb/modules...");
                 RemapTools::RemapLibrary("/data/adb/modules");
-                HIDE_LOG("Remapeamento concluido!");
+                HIDE_LOG("Remapeamento concluido com sucesso!");
             }).detach();
         } else {
             api->setOption(zygisk::Option::DLCLOSE_MODULE_LIBRARY);
