@@ -70,6 +70,11 @@ namespace RemapTools {
         std::vector<ProcMapInfo> maps = ListModulesWithName(name, exclude);
 
         for (const ProcMapInfo& info : maps) {
+            // Protege segmentos executáveis (r-xp) para evitar SIGSEGV no Kernel 3.10
+            if ((info.perms & PROT_EXEC) != 0) {
+                continue;
+            }
+
             uintptr_t aligned_start = PageAlignDown(info.start, page_size);
             uintptr_t aligned_end = PageAlignUp(info.end, page_size);
 
@@ -78,12 +83,10 @@ namespace RemapTools {
             size_t size = static_cast<size_t>(aligned_end - aligned_start);
             void *address = reinterpret_cast<void *>(aligned_start);
 
-            // 1. Garante leitura antes de copiar para o buffer anónimo
             if ((info.perms & PROT_READ) == 0) {
                 mprotect(address, size, PROT_READ | PROT_WRITE);
             }
 
-            // 2. Aloca cópia temporária na RAM e copia o conteúdo original
             void *backup = mmap(nullptr, size, PROT_READ | PROT_WRITE,
                                 MAP_ANONYMOUS | MAP_PRIVATE, -1, 0);
             if (backup == MAP_FAILED) {
@@ -92,13 +95,11 @@ namespace RemapTools {
 
             std::memcpy(backup, address, size);
 
-            // 3. Remove o mapeamento ligado ao ficheiro no disco
             if (munmap(address, size) != 0) {
                 munmap(backup, size);
                 continue;
             }
 
-            // 4. Recria página anónima no mesmo endereço exato alinhado
             void *new_map = mmap(address, size, PROT_READ | PROT_WRITE,
                                  MAP_ANONYMOUS | MAP_PRIVATE | MAP_FIXED, -1, 0);
             if (new_map == MAP_FAILED) {
@@ -106,14 +107,8 @@ namespace RemapTools {
                 continue;
             }
 
-            // 5. Restaura os dados, limpa cache ARMv7 e reaplica permissões originais
             std::memcpy(new_map, backup, size);
             munmap(backup, size);
-
-            if (info.perms & PROT_EXEC) {
-                __builtin___clear_cache(reinterpret_cast<char *>(new_map),
-                                      reinterpret_cast<char *>(new_map) + size);
-            }
 
             int target_perms = (info.perms != 0) ? static_cast<int>(info.perms) : PROT_READ;
             mprotect(new_map, size, target_perms);
