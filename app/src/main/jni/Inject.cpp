@@ -2,62 +2,94 @@
 #include <cstdio>
 #include <cstring>
 #include <unistd.h>
-#include <fstream>
+#include <fcntl.h>
 #include <string>
 #include <thread>
 #include <chrono>
 #include <android/log.h>
+#include "zygisk.hpp"
 #include "RemapTools.h"
 
 #define HIDE_LOG(...) __android_log_print(ANDROID_LOG_ERROR, "HideMap", __VA_ARGS__)
 
-// Le o nome do pacote atual direto do /proc/self/cmdline usando std::string
-static std::string GetCurrentPackageName() {
-    std::ifstream file("/proc/self/cmdline");
-    if (!file.is_open()) return "";
-    std::string cmdline;
-    std::getline(file, cmdline, '\0');
-    return cmdline;
-}
+using zygisk::Api;
+using zygisk::AppSpecializeArgs;
 
-// Verifica se o pacote atual esta no packages.txt
-static bool ShouldHideForCurrentApp(const std::string& pkg) {
-    if (pkg.empty()) return false;
-
-    std::ifstream file("/data/adb/modules/zygisk_hidemap/packages.txt");
-    if (!file.is_open()) {
-        return false;
+class HideMapModule : public zygisk::ModuleBase {
+public:
+    void onLoad(Api *api, JNIEnv *env) override {
+        this->api = api;
+        this->env = env;
+        HIDE_LOG("onLoad executado pelo Magisk!");
     }
 
-    std::string line;
-    while (std::getline(file, line)) {
-        // Remove espacos e quebras de linha (\r e \n)
-        while (!line.empty() && (line.back() == '\r' || line.back() == '\n' || line.back() == ' ' || line.back() == '\t')) {
-            line.pop_back();
+    void preAppSpecialize(AppSpecializeArgs *args) override {
+        should_hide = false;
+
+        if (args->nice_name == nullptr) {
+            api->setOption(zygisk::Option::DLCLOSE_MODULE_LIBRARY);
+            return;
         }
-        if (!line.empty() && pkg.find(line) != std::string::npos) {
-            return true;
+
+        const char *pkg_raw = env->GetStringUTFChars(args->nice_name, nullptr);
+        if (pkg_raw == nullptr) {
+            api->setOption(zygisk::Option::DLCLOSE_MODULE_LIBRARY);
+            return;
+        }
+        std::string current_pkg(pkg_raw);
+        env->ReleaseStringUTFChars(args->nice_name, pkg_raw);
+
+        int dir_fd = api->getModuleDir();
+        if (dir_fd >= 0) {
+            int file_fd = openat(dir_fd, "packages.txt", O_RDONLY);
+            if (file_fd >= 0) {
+                std::string token;
+                char ch;
+                while (read(file_fd, &ch, 1) == 1) {
+                    if (ch == '\n' || ch == '\r' || ch == ' ' || ch == '\t') {
+                        if (!token.empty()) {
+                            if (current_pkg.find(token) != std::string::npos) {
+                                should_hide = true;
+                                break;
+                            }
+                            token.clear();
+                        }
+                    } else {
+                        token.push_back(ch);
+                    }
+                }
+                if (!should_hide && !token.empty() && current_pkg.find(token) != std::string::npos) {
+                    should_hide = true;
+                }
+                close(file_fd);
+            }
+            close(dir_fd);
+        }
+
+        if (should_hide) {
+            HIDE_LOG("Alvo confirmado: %s", current_pkg.c_str());
+        } else {
+            api->setOption(zygisk::Option::DLCLOSE_MODULE_LIBRARY);
         }
     }
-    return false;
-}
 
-// Executa automaticamente assim que o Magisk carrega a .so no processo
-__attribute__((constructor))
-void init_hidemap() {
-    std::string pkg = GetCurrentPackageName();
-
-    if (!ShouldHideForCurrentApp(pkg)) {
-        return;
+    void postAppSpecialize(const AppSpecializeArgs *args) override {
+        if (should_hide) {
+            std::thread([]() {
+                std::this_thread::sleep_for(std::chrono::milliseconds(400));
+                HIDE_LOG("Iniciando remapeamento...");
+                RemapTools::RemapLibrary("/data/adb/modules");
+                HIDE_LOG("Remapeamento concluido!");
+            }).detach();
+        } else {
+            api->setOption(zygisk::Option::DLCLOSE_MODULE_LIBRARY);
+        }
     }
 
-    HIDE_LOG("Iniciado no alvo: %s", pkg.c_str());
+private:
+    Api *api = nullptr;
+    JNIEnv *env = nullptr;
+    bool should_hide = false;
+};
 
-    // Espera 400ms para o targetedfix terminar de carregar e entao limpa tudo da memoria
-    std::thread([]() {
-        std::this_thread::sleep_for(std::chrono::milliseconds(400));
-        HIDE_LOG("Remapeando modulos na memoria...");
-        RemapTools::RemapLibrary("/data/adb/modules");
-        HIDE_LOG("Concluido! Memoria limpa.");
-    }).detach();
-}
+REGISTER_ZYGISK_MODULE(HideMapModule)
